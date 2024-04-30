@@ -1,86 +1,92 @@
-name: Release
-
-on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version"
-        required: true
-      passphrase:
-        description: "GPG passphrase"
-        required: true
-
 jobs:
   release:
     name: Release
-    runs-on: ubuntu-latest
-
+    runs-on: self-hosted
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
+    - continue-on-error: true
+      name: Checkout sources
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - continue-on-error: true
+      name: Set up JDK 17
+      uses: actions/setup-java@v2
+      with:
+        cache: maven
+        distribution: temurin
+        java-version: '17'
+    - continue-on-error: true
+      name: Cache Maven
+      uses: actions/cache@v2
+      with:
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        path: ~/.m2
+        restore-keys: ${{ runner.os }}-m2
+    - continue-on-error: true
+      name: Set version
+      run: 'VERSION=${{ github.event.inputs.version }}
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v2
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
+        echo "Releasing $VERSION"
 
-      - name: Cache Maven
-        uses: actions/cache@v2
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
+        mvn -B versions:set -DnewVersion=$VERSION -DgenerateBackupPoms=false -f pom.xml
 
-      - name: Set version
-        run: |
-          VERSION=${{ github.event.inputs.version }}
-          echo "Releasing $VERSION"
-          mvn -B versions:set -DnewVersion=$VERSION -DgenerateBackupPoms=false -f pom.xml
-          mvn -B versions:set -DnewVersion=$VERSION -DgenerateBackupPoms=false -f benchmark/pom.xml
+        mvn -B versions:set -DnewVersion=$VERSION -DgenerateBackupPoms=false -f benchmark/pom.xml
 
-      - name: Install gpg secret key
-        run: |
-          cat <(echo -e "${{ secrets.GPG_PRIVATE_KEY }}") | gpg --batch --import
-          gpg --list-secret-keys --keyid-format LONG
+        '
+    - continue-on-error: true
+      name: Install gpg secret key
+      run: 'cat <(echo -e "${{ secrets.GPG_PRIVATE_KEY }}") | gpg --batch --import
 
-      - name: Build
-        run: |
-          export GPG_TTY=$(tty)
-          mvn --no-transfer-progress -B --file pom.xml verify -Dgpg.passphrase=${{ github.event.inputs.passphrase }}
+        gpg --list-secret-keys --keyid-format LONG
 
-      - name: Commit version
-        run: |
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "GitHub Action"
-          git commit -a -m "Releasing version $VERSION"
-          git push origin
+        '
+    - continue-on-error: true
+      name: Build
+      run: 'export GPG_TTY=$(tty)
 
-      - name: Release to Maven Central
-        env:
-          MAVEN_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
-          MAVEN_CENTRAL_TOKEN: ${{ secrets.SONATYPE_PASSWORD }}
-        run: |
-          export GPG_TTY=$(tty)
-          mvn --no-transfer-progress -B --file pom.xml \
-            -Drepository.url=https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
-            -Dgpg.passphrase=${{ github.event.inputs.passphrase }} \
-            deploy
+        mvn --no-transfer-progress -B --file pom.xml verify -Dgpg.passphrase=${{ github.event.inputs.passphrase
+        }}
 
-      - name: Release to GitHub
-        env:
-          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mvn -B --file pom.xml jreleaser:release
+        '
+    - continue-on-error: true
+      name: Commit version
+      run: 'git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: JReleaser output
-        if: always()
-        uses: actions/upload-artifact@v2
-        with:
-          name: jreleaser-logs
-          path: |
-            target/jreleaser/trace.log
-            target/jreleaser/output.properties
+        git config --global user.name "GitHub Action"
+
+        git commit -a -m "Releasing version $VERSION"
+
+        git push origin
+
+        '
+    - continue-on-error: true
+      env:
+        MAVEN_CENTRAL_TOKEN: ${{ secrets.SONATYPE_PASSWORD }}
+        MAVEN_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+      name: Release to Maven Central
+      run: "export GPG_TTY=$(tty)\nmvn --no-transfer-progress -B --file pom.xml \\\
+        \n  -Drepository.url=https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN\
+        \ }}@github.com/${{ github.repository }}.git \\\n  -Dgpg.passphrase=${{ github.event.inputs.passphrase\
+        \ }} \\\n  deploy\n"
+    - continue-on-error: true
+      env:
+        JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      name: Release to GitHub
+      run: 'mvn -B --file pom.xml jreleaser:release
+
+        '
+    - continue-on-error: true
+      if: always()
+      name: JReleaser output
+      uses: actions/upload-artifact@v2
+      with:
+        name: jreleaser-logs
+        path: 'target/jreleaser/trace.log
+
+          target/jreleaser/output.properties
+
+          '
+name: Release
+on:
+  repository_dispatch:
+    types: trigger-ga___release.yml
